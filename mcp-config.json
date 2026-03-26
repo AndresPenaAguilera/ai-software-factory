@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json.schemastore.org/mcp-server-config.json",
+  "description": "MCP tool configuration for the AI Software Factory pipeline",
+  "servers": {
+    "github": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "capabilities": [
+        "issues.read",
+        "issues.write",
+        "pull_requests.read",
+        "pull_requests.write",
+        "contents.read",
+        "contents.write"
+      ]
+    },
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "${WORKSPACE_ROOT}"
+      ],
+      "description": "Gives agents read/write access to the repo working tree",
+      "capabilities": [
+        "read_file",
+        "write_file",
+        "list_directory",
+        "search_files"
+      ]
+    },
+    "sequential-thinking": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "description": "Enables structured reasoning chains for complex implementation tasks"
+    }
+  },
+  "inputs": [
+    {
+      "id": "GITHUB_TOKEN",
+      "description": "GitHub personal access token with repo + pull_request scope",
+      "type": "secret"
+    },
+    {
+      "id": "WORKSPACE_ROOT",
+      "description": "Absolute path to the repository root on disk",
+      "type": "string",
+      "default": "."
+    }
+  ],
+  "notes": [
+    "GITHUB_TOKEN is injected automatically by GitHub Actions via secrets.GITHUB_TOKEN.",
+    "When running agents locally, set GITHUB_TOKEN as an environment variable.",
+    "Add new servers here if the pipeline needs access to Jira, Linear, Slack, etc."
+  ]
+}

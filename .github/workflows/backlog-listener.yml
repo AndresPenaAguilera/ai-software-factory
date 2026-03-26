@@ -1,0 +1,230 @@
+name: AI Backlog Listener
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  issues:
+    types: [opened, labeled]      # New issue or label added
+  issue_comment:
+    types: [created]              # Manual trigger via /ai-implement comment
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Permissions  (fine-grained: no write to settings/secrets)
+# ─────────────────────────────────────────────────────────────────────────────
+permissions:
+  contents: write          # push feature branch
+  pull-requests: write     # create draft PR
+  issues: write            # add tracking comments
+
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+# ─────────────────────────────────────────────────────────────────────────────
+  validate-trigger:
+    name: Validate trigger conditions
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      issue_number: ${{ steps.check.outputs.issue_number }}
+      issue_title: ${{ steps.check.outputs.issue_title }}
+      issue_body: ${{ steps.check.outputs.issue_body }}
+
+    steps:
+      - name: Check trigger conditions
+        id: check
+        run: |
+          SHOULD_RUN="false"
+
+          # Case 1: issue opened/labeled with 'ai-task'
+          if [[ "${{ github.event_name }}" == "issues" ]]; then
+            LABELS='${{ toJson(github.event.issue.labels.*.name) }}'
+            if echo "$LABELS" | grep -q '"ai-task"'; then
+              SHOULD_RUN="true"
+            fi
+          fi
+
+          # Case 2: maintainer posts /ai-implement comment
+          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            COMMENT='${{ github.event.comment.body }}'
+            if echo "$COMMENT" | grep -q '/ai-implement'; then
+              SHOULD_RUN="true"
+            fi
+          fi
+
+          # Expose outputs
+          echo "should_run=${SHOULD_RUN}" >> $GITHUB_OUTPUT
+          echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+
+          # Sanitise title for branch name
+          TITLE="${{ github.event.issue.title }}"
+          echo "issue_title=${TITLE}" >> $GITHUB_OUTPUT
+
+          # Multiline body requires delimiter
+          {
+            echo "issue_body<<EOF"
+            echo "${{ github.event.issue.body }}"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+  # ───────────────────────────────────────────────────────────────────────────
+  setup-branch:
+    name: Create feature branch
+    needs: validate-trigger
+    if: needs.validate-trigger.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      branch_name: ${{ steps.branch.outputs.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Derive branch name
+        id: branch
+        run: |
+          NUM="${{ needs.validate-trigger.outputs.issue_number }}"
+          TITLE="${{ needs.validate-trigger.outputs.issue_title }}"
+          # lowercase, spaces → hyphens, strip special chars, max 50 chars
+          SLUG=$(echo "$TITLE" \
+            | tr '[:upper:]' '[:lower:]' \
+            | tr ' ' '-' \
+            | tr -cd '[:alnum:]-' \
+            | cut -c1-50)
+          BRANCH="ai/issue-${NUM}-${SLUG}"
+          echo "name=${BRANCH}" >> $GITHUB_OUTPUT
+
+      - name: Create and push branch
+        run: |
+          BRANCH="${{ steps.branch.outputs.name }}"
+          git checkout -b "$BRANCH"
+          git push origin "$BRANCH"
+          echo "✅ Branch '$BRANCH' created."
+
+  # ───────────────────────────────────────────────────────────────────────────
+  trigger-copilot-agent:
+    name: Trigger Copilot coding agent
+    needs: [validate-trigger, setup-branch]
+    if: needs.validate-trigger.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Post agent instruction comment
+        # This comment assigns the issue to @github-copilot with full context
+        run: |
+          BRANCH="${{ needs.setup-branch.outputs.branch_name }}"
+          NUM="${{ needs.validate-trigger.outputs.issue_number }}"
+
+          gh issue comment "$NUM" \
+            --repo "${{ github.repository }}" \
+            --body "$(cat <<'AGENT_PROMPT'
+          @github-copilot Please implement this issue following these rules:
+
+          **Branch to work on:** \`$BRANCH\`
+
+          **Architecture context:** Read \`docs/architecture-rules.md\` before writing any code.
+
+          **Coding standards:** Follow all instructions in \`.github/agents/senior-dev.agent.md\`.
+
+          **Acceptance criteria:** Implement everything described in the issue body.
+          All new logic must be covered by unit tests.
+          No TODO comments — complete implementation only.
+
+          Once done, push your changes to the branch above. The draft PR is already open.
+          AGENT_PROMPT
+          )"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  create-draft-pr:
+    name: Create draft PR
+    needs: [validate-trigger, setup-branch]
+    if: needs.validate-trigger.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      pr_url: ${{ steps.pr.outputs.url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Open draft pull request
+        id: pr
+        run: |
+          BRANCH="${{ needs.setup-branch.outputs.branch_name }}"
+          NUM="${{ needs.validate-trigger.outputs.issue_number }}"
+          TITLE="${{ needs.validate-trigger.outputs.issue_title }}"
+
+          PR_URL=$(gh pr create \
+            --repo "${{ github.repository }}" \
+            --title "[AI] ${TITLE}" \
+            --body "## 🤖 Automated Implementation
+
+          This PR was generated by the **AI Software Factory** pipeline.
+
+          ### Linked issue
+          Closes #${NUM}
+
+          ### Agents involved
+          | Role | Agent file |
+          |------|-----------|
+          | Developer | [\`.github/agents/senior-dev.agent.md\`](.github/agents/senior-dev.agent.md) |
+          | Reviewer checklist | [\`.github/agents/reviewer.agent.md\`](.github/agents/reviewer.agent.md) |
+
+          ### Architecture reference
+          - [\`docs/architecture-rules.md\`](docs/architecture-rules.md)
+
+          ### Review checklist
+          - [ ] Code follows architecture rules
+          - [ ] Unit tests written and passing
+          - [ ] No hardcoded secrets or credentials
+          - [ ] Naming conventions respected
+          - [ ] No TODO comments remain
+          - [ ] PR is ready for human review
+
+          > **Draft PR** — do not merge until all checklist items are ticked." \
+            --base main \
+            --head "$BRANCH" \
+            --draft \
+            --label "ai-generated" 2>&1 || true)
+
+          echo "url=${PR_URL}" >> $GITHUB_OUTPUT
+          echo "Draft PR → $PR_URL"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  notify-issue:
+    name: Post tracking comment on issue
+    needs: [validate-trigger, setup-branch, create-draft-pr]
+    if: needs.validate-trigger.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Post status comment
+        run: |
+          NUM="${{ needs.validate-trigger.outputs.issue_number }}"
+          BRANCH="${{ needs.setup-branch.outputs.branch_name }}"
+          PR_URL="${{ needs.create-draft-pr.outputs.pr_url }}"
+
+          gh issue comment "$NUM" \
+            --repo "${{ github.repository }}" \
+            --body "## 🏭 AI Software Factory — Pipeline started
+
+          | Item | Value |
+          |------|-------|
+          | 🌿 Branch | \`${BRANCH}\` |
+          | 📋 Draft PR | ${PR_URL} |
+          | 🤖 Agent | Copilot coding agent (senior-dev) |
+          | 📐 Rules | \`docs/architecture-rules.md\` |
+
+          The agent is now implementing the solution.
+          When code is pushed, open the draft PR and run the reviewer agent for a final check."
