@@ -1,0 +1,12 @@
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/bin/Debug/net8.0/Contracts.deps.json
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/bin/Debug/net8.0/Contracts.dll
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/bin/Debug/net8.0/Contracts.pdb
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/obj/Debug/net8.0/Contracts.GeneratedMSBuildEditorConfig.editorconfig
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/obj/Debug/net8.0/Contracts.AssemblyInfoInputs.cache
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/obj/Debug/net8.0/Contracts.AssemblyInfo.cs
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/obj/Debug/net8.0/Contracts.csproj.CoreCompileInputs.cache
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/obj/Debug/net8.0/Contracts.sourcelink.json
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/obj/Debug/net8.0/Contracts.dll
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/obj/Debug/net8.0/refint/Contracts.dll
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/obj/Debug/net8.0/Contracts.pdb
+/home/runner/work/ai-software-factory/ai-software-factory/src/Contracts/obj/Debug/net8.0/ref/Contracts.dll

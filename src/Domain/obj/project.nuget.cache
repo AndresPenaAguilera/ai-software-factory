@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "3SuzGbPkowc=",
+  "success": true,
+  "projectFilePath": "/home/runner/work/ai-software-factory/ai-software-factory/src/Domain/Domain.csproj",
+  "expectedPackageFiles": [
+    "/tmp/codeql-scratch-09c0378343001eb3/dbs/csharp/working/packages/microsoft.netcore.app.ref/8.0.25/microsoft.netcore.app.ref.8.0.25.nupkg.sha512",
+    "/tmp/codeql-scratch-09c0378343001eb3/dbs/csharp/working/packages/microsoft.aspnetcore.app.ref/8.0.25/microsoft.aspnetcore.app.ref.8.0.25.nupkg.sha512"
+  ],
+  "logs": []
+}
