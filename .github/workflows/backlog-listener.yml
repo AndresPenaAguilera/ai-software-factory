@@ -8,6 +8,12 @@ on:
     types: [opened, labeled]      # New issue or label added
   issue_comment:
     types: [created]              # Manual trigger via /ai-implement comment
+  workflow_dispatch:              # Manual run from GitHub UI (for testing)
+    inputs:
+      issue_number:
+        description: "Issue number to process"
+        required: true
+        type: string
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Permissions  (fine-grained: no write to settings/secrets)
@@ -34,15 +40,28 @@ jobs:
         id: check
         env:
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          # For 'labeled' events, this is the label just added (most reliable)
+          LABEL_JUST_ADDED: ${{ github.event.label.name }}
+          # For 'opened' events, labels already on the issue
           LABELS_JSON: ${{ toJson(github.event.issue.labels.*.name) }}
           COMMENT_BODY: ${{ github.event.comment.body }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           SHOULD_RUN="false"
 
-          # Case 1: issue opened/labeled with 'ai-task'
-          if [[ "$EVENT_NAME" == "issues" ]]; then
+          # Case 1a: label 'ai-task' was just added  →  use event.label.name (reliable)
+          if [[ "$EVENT_NAME" == "issues" && "$EVENT_ACTION" == "labeled" ]]; then
+            echo "Label just added: '$LABEL_JUST_ADDED'"
+            if [[ "$LABEL_JUST_ADDED" == "ai-task" ]]; then
+              SHOULD_RUN="true"
+            fi
+          fi
+
+          # Case 1b: issue opened AND already had the label at creation time
+          if [[ "$EVENT_NAME" == "issues" && "$EVENT_ACTION" == "opened" ]]; then
+            echo "Labels on opened issue: $LABELS_JSON"
             if echo "$LABELS_JSON" | grep -q '"ai-task"'; then
               SHOULD_RUN="true"
             fi
@@ -55,6 +74,11 @@ jobs:
             fi
           fi
 
+          # Case 3: manual workflow_dispatch trigger
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            SHOULD_RUN="true"
+          fi
+
           # Sanitise title → URL-safe slug for branch name
           SLUG=$(echo "$ISSUE_TITLE" \
             | tr '[:upper:]' '[:lower:]' \
@@ -63,14 +87,29 @@ jobs:
             | sed 's/^-*//' \
             | cut -c1-50)
 
-          echo "should_run=${SHOULD_RUN}"   >> "$GITHUB_OUTPUT"
-          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "branch_slug=${SLUG}"         >> "$GITHUB_OUTPUT"
+          # Fallback slug when title is empty (e.g. workflow_dispatch)
+          if [[ -z "$SLUG" ]]; then
+            SLUG="issue"
+          fi
 
-          echo "Event      : $EVENT_NAME"
-          echo "Labels     : $LABELS_JSON"
-          echo "Should run : $SHOULD_RUN"
+          echo "should_run=${SHOULD_RUN}"     >> "$GITHUB_OUTPUT"
+          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "branch_slug=${SLUG}"          >> "$GITHUB_OUTPUT"
+
+          echo "─────────────────────────────────"
+          echo "Event      : $EVENT_NAME / $EVENT_ACTION"
+          echo "Label added: $LABEL_JUST_ADDED"
+          echo "Labels JSON: $LABELS_JSON"
+          echo "Issue #    : $ISSUE_NUMBER"
           echo "Slug       : $SLUG"
+          echo "Should run : $SHOULD_RUN"
+          echo "─────────────────────────────────"
+
+          # Exit non-zero so the job is RED (not silently skipped) when nothing matched
+          if [[ "$SHOULD_RUN" == "false" ]]; then
+            echo "::notice::Trigger conditions not met — no 'ai-task' label or /ai-implement comment found. Stopping."
+            exit 0   # exit 0 so downstream jobs see a clean 'success', skipped by if-condition
+          fi
 
   # ───────────────────────────────────────────────────────────────────────────
   setup-branch:
